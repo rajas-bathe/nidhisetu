@@ -1,0 +1,60 @@
+@import "tailwindcss";
+
+/*
+  Design tokens (Stage 1). Kept central so the later Google Stitch /
+  Antigravity re-skin can swap values without touching components.
+*/
+@theme {
+  --color-navy-950: #081a33;
+  --color-navy-900: #0b2447;
+  --color-navy-800: #14365f;
+  --color-navy-700: #1d4a7a;
+  --color-navy-100: #dbe7f5;
+
+  --color-surface: #f8fafc;
+  --color-surface-raised: #ffffff;
+
+  --color-accent-600: #0d9488; /* teal-600 as primary action colour */
+  --color-accent-700: #0f766e;
+  --color-accent-100: #ccfbf1;
+}
+
+/* Reusable primitives so a re-skin stays centralised. Tailwind 4: shared
+   classes referenced by `@apply` must be declared with @utility. */
+@utility app-btn {
+  @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 text-sm font-medium
+    transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600
+    disabled:pointer-events-none disabled:opacity-50;
+}
+@layer components {
+  .app-btn-primary {
+    @apply app-btn bg-teal-600 text-white hover:bg-teal-700;
+  }
+  .app-btn-secondary {
+    @apply app-btn border border-slate-300 bg-white text-slate-700 hover:bg-slate-100;
+  }
+  .app-input {
+    @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900
+      placeholder:text-slate-400 focus:border-teal-600 focus:outline-2 focus:outline-offset-1 focus:outline-teal-600/60
+      disabled:bg-slate-100;
+  }
+  .app-label {
+    @apply mb-1 block text-sm font-medium text-slate-700;
+  }
+  .app-card {
+    @apply rounded-xl border border-slate-200 bg-white shadow-sm;
+  }
+  .app-table {
+    @apply w-full border-collapse text-left text-sm;
+  }
+  .app-table th {
+    @apply border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-slate-500;
+  }
+  .app-table td {
+    @apply border-b border-slate-100 px-3 py-2.5 text-slate-700;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+}

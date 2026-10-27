@@ -1,0 +1,48 @@
+{
+  "name": "sih26265-fdr-portal",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SIH26265 - Streamline of security deposit / FDR portal (Stage 1: authentication, institution isolation, seeded dashboards)",
+  "workspaces": [
+    "packages/contracts",
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "npm run dev -w @sih26265/backend",
+    "dev:frontend": "npm run dev -w @sih26265/frontend",
+    "local:db": "node scripts/dev-postgres.mjs",
+    "worker": "npm run worker:watch -w @sih26265/backend",
+    "worker:once": "npm run worker:once -w @sih26265/backend",
+    "db:status": "npm run db:status -w @sih26265/backend",
+    "db:apply": "npm run db:deploy -w @sih26265/backend",
+    "db:generate": "npm run db:generate -w @sih26265/backend",
+    "db:seed": "npm run db:seed -w @sih26265/backend --",
+    "typecheck": "npm run typecheck -w @sih26265/contracts && npm run typecheck -w @sih26265/backend && npm run typecheck -w @sih26265/frontend",
+    "lint": "eslint .",
+    "build": "npm run build -w @sih26265/contracts && npm run build -w @sih26265/backend && npm run build -w @sih26265/frontend",
+    "test": "npm run test -w @sih26265/backend",
+    "postinstall": "npm run db:generate -w @sih26265/backend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "typescript": "^5.9.3"
+  },
+  "optionalDependencies": {
+    "@embedded-postgres/windows-x64": "17.10.0-beta.17",
+    "embedded-postgres": "17.10.0-beta.17"
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "prisma@6.19.3": true,
+    "@embedded-postgres/windows-x64@17.10.0-beta.17": true,
+    "embedded-postgres@17.10.0-beta.17": true
+  }
+}

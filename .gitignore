@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Builds
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.vite/
+
+# Environment files (examples are committed)
+.env
+.env.local
+.env.*.local
+frontend/.env
+backend/.env
+
+# Local infrastructure data (anchored: only the repo-root directories)
+/postgres-data/
+/minio-data/
+docker/postgres-init/*.sql.orig
+
+# Uploaded documents + local embedded database (never commit either).
+# Rooted ONLY - backend/src/integrations/storage/ (source code) stays tracked.
+/storage/
+
+# Logs & OS noise
+*.log
+logs/
+.DS_Store
+Thumbs.db
+
+# Test artifacts
+playwright-report/
+test-results/
+backend/tests/.test-storage/
+backend/tests/.db-status.json
+.workercache/
+
+# OS/editor
+.idea/
+.vscode/

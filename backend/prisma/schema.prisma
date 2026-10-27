@@ -1,0 +1,451 @@
+// SIH26265 FDR portal - database schema (Stage 1).
+//
+// Design notes:
+// - Money is stored as integer minor units (BigInt) to avoid floating point.
+// - Calendar dates ({@db.Date}) are stored separately from event timestamps.
+// - Verification checks reference the submission version that was reviewed.
+// - Corrections produce new versions and invalidate affected checks.
+// - Replacement links ("replaces") preserve history; "supersededBy" is set only
+//   when a replacement is authorised, so reports never double-count holdings.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  COLLEGE_USER
+  REVIEW_OFFICER
+  APPROVING_AUTHORITY
+}
+
+enum InstitutionStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ReviewStatus {
+  draft
+  submitted
+  under_review
+  discrepancy
+  verified
+}
+
+enum ReleaseStatus {
+  none
+  requested
+  recommended
+  approved
+  rejected
+  completed
+}
+
+enum TaskType {
+  VERIFICATION_REVIEW
+  DOCUMENT_CORRECTION
+  RENEWAL_AFTER_MATURITY
+  RELEASE_RECOMMENDED
+  RELEASE_DECISION
+  GENERIC_REVIEW
+}
+
+enum TaskStatus {
+  OPEN
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+/// How the evidence backing this check was produced. Simulated sources must be
+/// labelled in the UI, in database records and in exports.
+enum VerificationSource {
+  SIMULATED_BANK_CHECK
+  MANUAL_OFFICER_REVIEW
+  DOCUMENT_FINGERPRINT
+}
+
+enum VerificationOutcome {
+  MATCH
+  MISMATCH
+  SOURCE_UNAVAILABLE
+  MANUAL_REQUIRED
+  NOT_YET_CHECKED
+}
+
+enum ReleaseRequestStatus {
+  OPEN
+  DECIDED
+}
+
+enum DeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+enum JobRunStatus {
+  OK
+  FAILED
+}
+
+// ---------------------------------------------------------------------------
+// Institutions, users, sessions, jurisdiction
+// ---------------------------------------------------------------------------
+
+model Institution {
+  id        Int               @id @default(autoincrement())
+  code      String            @unique
+  name      String
+  city      String?
+  state     String?
+  isDemo    Boolean           @default(true)
+  status    InstitutionStatus @default(ACTIVE)
+  createdAt DateTime          @default(now())
+
+  users         User[]
+  fdrs          Fdr[]
+  tasks         Task[]
+  auditEvents   AuditEvent[]
+  jurisdictions OfficerJurisdiction[]
+  notifications Notification[]
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  email         String   @unique
+  passwordHash  String
+  fullName      String
+  role          UserRole
+  institutionId Int?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now()) @updatedAt
+
+  institution Institution?          @relation(fields: [institutionId], references: [id])
+  sessions    Session[]
+  checksSeen  VerificationCheck[]
+  documents   Document[]
+  fdrVersions FdrVersion[]          @relation("VersionSubmitter")
+  requestedReleases    ReleaseRequest[] @relation("ReleaseRequestedBy")
+  recommendedReleases  ReleaseRequest[] @relation("ReleaseRecommendedBy")
+  decidedReleases      ReleaseRequest[] @relation("ReleaseDecidedBy")
+  completedReleases    ReleaseRequest[] @relation("ReleaseCompletedBy")
+
+  jurisdictions OfficerJurisdiction[]
+  taskAssignments Task[]
+  auditEvents   AuditEvent[]
+  notifications Notification[]
+}
+
+model Session {
+  id            Int       @id @default(autoincrement())
+  tokenHash     String    @unique
+  userId        Int
+  createdAt     DateTime  @default(now())
+  expiresAt     DateTime
+  invalidatedAt DateTime?
+  createdIp     String?
+  userAgent     String?
+  lastSeenAt    DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId, expiresAt])
+}
+
+/// Records which institutions an officer may work on. Authority to act always
+/// comes from the database, never from the request body.
+model OfficerJurisdiction {
+  id            Int      @id @default(autoincrement())
+  officerId     Int
+  institutionId Int
+  createdAt     DateTime @default(now())
+
+  officer     User        @relation(fields: [officerId], references: [id])
+  institution Institution @relation(fields: [institutionId], references: [id])
+
+  @@unique([officerId, institutionId])
+}
+
+// ---------------------------------------------------------------------------
+// FDR instruments, versions, documents
+// ---------------------------------------------------------------------------
+
+model Fdr {
+  id            Int          @id @default(autoincrement())
+  publicCode    String       @unique
+  institutionId Int
+  bankName      String
+  bankBranch    String
+  referenceNo   String
+  amountMinor   BigInt
+  currency      String       @default("INR")
+  issueDate     DateTime     @db.Date
+  maturityDate  DateTime     @db.Date
+  remarks       String?      @db.Text
+  status        ReviewStatus @default(draft)
+  currentVersion Int         @default(1)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @default(now()) @updatedAt
+  submittedAt   DateTime?
+  verifiedAt    DateTime?
+
+  /// Instrument this FDR replaces (link made when the replacement is submitted).
+  previousFdrId Int?
+  /// Set only when an accepted replacement covers this instrument.
+  supersededByFdrId Int?
+  supersededAt      DateTime?
+
+  institution Institution? @relation(fields: [institutionId], references: [id])
+  replaces   Fdr?   @relation("ReplacementOf", fields: [previousFdrId], references: [id])
+  successors Fdr[]  @relation("ReplacementOf")
+  supersededBy Fdr? @relation("SupersededBy", fields: [supersededByFdrId], references: [id])
+  supersedings Fdr[] @relation("SupersededBy")
+
+  versions  FdrVersion[]
+  documents Document[]
+  checks    VerificationCheck[]
+  tasks     Task[]
+  releases  ReleaseRequest[]
+  audits    AuditEvent[]
+
+  @@index([institutionId, status])
+  @@index([maturityDate])
+  @@index([previousFdrId])
+  @@index([supersededByFdrId])
+}
+
+/// Immutable snapshots of the submitted detail fields for each version.
+model FdrVersion {
+  id           Int      @id @default(autoincrement())
+  fdrId        Int
+  versionNo    Int
+  bankName     String
+  bankBranch   String
+  referenceNo  String
+  amountMinor  BigInt
+  currency     String
+  issueDate    DateTime @db.Date
+  maturityDate DateTime @db.Date
+  remarks      String?  @db.Text
+  submittedById Int?
+  createdAt    DateTime @default(now())
+
+  fdr         Fdr          @relation(fields: [fdrId], references: [id])
+  submittedBy User?        @relation("VersionSubmitter", fields: [submittedById], references: [id])
+  checks      VerificationCheck[]
+
+  @@unique([fdrId, versionNo])
+}
+
+model Document {
+  id             Int      @id @default(autoincrement())
+  fdrId          Int
+  fdrVersionNo   Int?
+  objectKey      String
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  checksumSha256 String
+  uploadedById   Int?
+  uploadedAt     DateTime @default(now())
+  supersededById Int?
+
+  fdr       Fdr   @relation(fields: [fdrId], references: [id])
+  uploadedBy User? @relation(fields: [uploadedById], references: [id])
+
+  @@index([fdrId])
+}
+
+// ---------------------------------------------------------------------------
+// Verification evidence
+// ---------------------------------------------------------------------------
+
+model VerificationCheck {
+  id             Int                 @id @default(autoincrement())
+  fdrId          Int
+  /// Version number of the submission that was actually reviewed.
+  fdrVersionNo   Int
+  /// Machine field name, e.g. "amount", "maturity_date", "reference_no", "bank_name".
+  field          String
+  /// What the college submitted (normalised where safe).
+  submittedValue String?             @db.Text
+  /// What the evidence source observed.
+  observedValue  String?             @db.Text
+  source         VerificationSource
+  outcome        VerificationOutcome
+  reason         String?             @db.Text
+  checkedById    Int?
+  checkedAt      DateTime            @default(now())
+  /// Set when a later correction touches the corresponding field; the check
+  /// then no longer counts as evidence for the current version.
+  invalidatedAt  DateTime?
+  invalidatedVersionNo Int?
+  invalidatedReason    String?       @db.Text
+
+  fdr       Fdr         @relation(fields: [fdrId], references: [id])
+  checkedBy User?       @relation(fields: [checkedById], references: [id])
+  version   FdrVersion? @relation(fields: [fdrId, fdrVersionNo], references: [fdrId, versionNo])
+
+  @@index([fdrId, fdrVersionNo])
+}
+
+// ---------------------------------------------------------------------------
+// Tasks & notifications
+// ---------------------------------------------------------------------------
+
+model Task {
+  id          Int        @id @default(autoincrement())
+  fdrId       Int?
+  type        TaskType
+  title       String     @db.Text
+  detail      String?    @db.Text
+  status      TaskStatus @default(OPEN)
+  assigneeInstitutionId Int?
+  assigneeUserId        Int?
+  dueDate     DateTime   @db.Date
+  /// Unique key per produced reminder so repeated job runs upsert, not duplicate.
+  deduplicationKey String? @unique
+  escalationLevel    Int    @default(0)
+  lastEscalationStage String?
+  createdByJob  Boolean  @default(false)
+  policyVersion String?
+  createdAt     DateTime @default(now())
+  closedAt      DateTime?
+  closedNote    String?   @db.Text
+
+  fdr         Fdr?         @relation(fields: [fdrId], references: [id])
+  institution Institution? @relation(fields: [assigneeInstitutionId], references: [id])
+  assignee    User?        @relation(fields: [assigneeUserId], references: [id])
+
+  @@index([assigneeInstitutionId, status])
+  @@index([assigneeUserId, status])
+  @@index([dueDate])
+}
+
+model Notification {
+  id             Int            @id @default(autoincrement())
+  userId         Int?
+  institutionId  Int?
+  title          String         @db.Text
+  body           String?        @db.Text
+  deliveryStatus DeliveryStatus @default(PENDING)
+  readAt         DateTime?
+  createdAt      DateTime       @default(now())
+
+  user        User?        @relation(fields: [userId], references: [id])
+  institution Institution? @relation(fields: [institutionId], references: [id])
+
+  @@index([userId, readAt])
+}
+
+// ---------------------------------------------------------------------------
+// Release handling
+// ---------------------------------------------------------------------------
+
+/// Release status of an instrument lives on ReleaseRequest records:
+/// requested -> recommended/rejected -> approved/rejected -> completed.
+/// The dashboard/list views derive a ReleaseStatus per FDR from the latest
+/// request; no release request means "none".
+model ReleaseRequest {
+  id         Int                  @id @default(autoincrement())
+  fdrId      Int
+  requestedByUserId Int
+  reason     String               @db.Text
+  status     ReleaseRequestStatus @default(OPEN)
+  decision   ReleaseStatus?       @default(none)
+  decidedById Int?
+  decisionNote String?            @db.Text
+  recommendedById Int?
+  recommendationNote String?      @db.Text
+  policyVersion String?
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @default(now()) @updatedAt
+  decidedAt  DateTime?
+  completedById Int?
+  completedAt DateTime?
+  completionNote String?          @db.Text
+
+  fdr           Fdr   @relation(fields: [fdrId], references: [id])
+  requestedBy   User  @relation("ReleaseRequestedBy", fields: [requestedByUserId], references: [id])
+  recommendedBy User? @relation("ReleaseRecommendedBy", fields: [recommendedById], references: [id])
+  decidedBy     User? @relation("ReleaseDecidedBy", fields: [decidedById], references: [id])
+  completedBy   User? @relation("ReleaseCompletedBy", fields: [completedById], references: [id])
+
+  @@index([fdrId, status])
+  @@index([requestedByUserId])
+}
+
+// ---------------------------------------------------------------------------
+// Audit, sample policy, idempotency, job runs
+// ---------------------------------------------------------------------------
+
+model AuditEvent {
+  id            BigInt   @id @default(autoincrement())
+  actorUserId   Int?
+  institutionId Int?
+  fdrId         Int?
+  action        String
+  entityType    String?
+  entityId      String?
+  detail        Json?
+  requestIp     String?
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  actor       User?        @relation(fields: [actorUserId], references: [id])
+  institution Institution? @relation(fields: [institutionId], references: [id])
+  fdr         Fdr?         @relation(fields: [fdrId], references: [id])
+
+  @@index([entityType, entityId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([fdrId, createdAt])
+}
+
+/// Versioned sample policies. All thresholds shipped with this repository are
+/// SAMPLE configuration for demonstration, not official AICTE rules.
+model PolicyVersion {
+  id            String   @id @default(cuid())
+  key           String
+  versionLabel  String
+  effectiveFrom DateTime @db.Date
+  config        Json
+  notes         String?  @db.Text
+  isSample      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  @@unique([key, versionLabel])
+}
+
+model IdempotencyKey {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  scope     String
+  key       String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, scope, key])
+}
+
+/// Success/failure record for each scheduled job execution.
+model JobRun {
+  id         Int          @id @default(autoincrement())
+  jobName    String
+  status     JobRunStatus @default(OK)
+  startedAt  DateTime     @default(now())
+  finishedAt DateTime?
+  processed  Int          @default(0)
+  created    Int          @default(0)
+  error      String?      @db.Text
+
+  @@index([jobName, startedAt])
+}

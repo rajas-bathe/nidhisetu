@@ -1,0 +1,14 @@
+import { defineConfig } from "vitest/config";
+
+export default defineConfig({
+  test: {
+    environment: "node",
+    include: ["tests/**/*.test.ts"],
+    setupFiles: ["./tests/setup-env.ts"],
+    globalSetup: ["./tests/global-setup.ts"],
+    // One database, one scenario at a time: prevents truncation races.
+    fileParallelism: false,
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
+  },
+});
