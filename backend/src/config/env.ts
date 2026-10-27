@@ -1,6 +1,14 @@
-import "dotenv/config";
+import dotenv from "dotenv";
 import path from "node:path";
 import { z } from "zod";
+
+// Reload .env values on every boot, WITHOUT overriding what a supervisor/test
+// runner already injected: tsx watch respawns with the ORIGINAL process env,
+// so without override() it would keep serving stale .env values forever.
+// NODE_ENV===test must keep first-wins (the test harness intentionally injects
+// the dedicated test database URL before app modules load).
+dotenv.config({ path: path.resolve(process.cwd(), ".env"), override: process.env.NODE_ENV !== "test" });
+
 /**
  * Environment configuration. Fails fast at boot with a clear message instead of
  * crashing later on a missing credential. Only development/test defaults are
@@ -15,10 +23,21 @@ const EnvSchema = z.object({
 
   PORT: z.coerce.number().int().positive().default(4000),
 
-  /** Browser origins allowed to issue mutating requests (CSRF/origin guard). */
+  /** Browser origins allowed to issue mutating requests (CSRF/origin guard).
+   *  Vite auto-increments to 5174/5175 when an older dev server still holds
+   *  5173, so those are allow-listed as well for local development. */
   ALLOWED_ORIGINS: z
     .string()
-    .default("http://localhost:5173,http://127.0.0.1:5173"),
+    .default(
+      [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5175",
+        "http://127.0.0.1:5175",
+      ].join(","),
+    ),
 
   COOKIE_SECURE: booleanish(false),
   SESSION_COOKIE_NAME: z.string().min(1).default("fdr_session"),
