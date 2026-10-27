@@ -5,7 +5,7 @@ import { prisma } from "../db/client.js";
 import { forbidden } from "../errors.js";
 import { addDays, businessToday, parseLocalDate } from "../utils/dates.js";
 import { serializeFdr, type LatestReleaseInfo } from "../dto/serialize.js";
-import { getAccessScope } from "./scope.service.js";
+import { institutionCondition, getAccessScope, type AccessScope } from "./scope.service.js";
 import type { AuthenticatedUser } from "../middleware/authenticate.js";
 
 export interface ListFdrsOptions extends ListFdrsQuery {
@@ -35,6 +35,7 @@ const SORT_MAP: Record<string, Prisma.FdrOrderByWithRelationInput[]> = {
  * - College accounts always read only their own institution; a foreign
  *   institution filter is rejected.
  * - Officers read only institutions inside their recorded jurisdiction.
+ * - System administrators range plane-wide for supervision screens.
  * - An empty scope yields no rows. Guessing ids cannot leak other data.
  */
 export async function listFdrs(
@@ -42,26 +43,40 @@ export async function listFdrs(
   opts: ListFdrsOptions,
 ): Promise<PaginatedResponse<FdrListItem>> {
   const scope = await getAccessScope(user);
+  const scopeCondition = institutionCondition(scope);
 
-  if (scope.institutionIds.length === 0) {
+  if (scopeCondition == null) {
+    return listForInstitutions(scope, opts, null);
+  }
+
+  return listForInstitutions(scope, opts, scopeCondition.in);
+}
+
+async function listForInstitutions(
+  scope: AccessScope,
+  opts: ListFdrsOptions,
+  allowedIds: number[] | null,
+): Promise<PaginatedResponse<FdrListItem>> {
+  if (allowedIds != null && allowedIds.length === 0) {
     return { items: [], total: 0, page: opts.page, pageSize: opts.pageSize };
   }
 
-  let activeInstitutionIds = scope.institutionIds;
+  let activeInstitutionIds = allowedIds;
   if (scope.user.role === "COLLEGE_USER" && opts.institutionId != null) {
     if (opts.institutionId !== scope.user.institutionId) {
       throw forbidden("This institution is outside your assigned scope.");
     }
   } else if (opts.institutionId != null) {
-    if (!activeInstitutionIds.includes(opts.institutionId)) {
+    if (allowedIds != null && !allowedIds.includes(opts.institutionId)) {
       throw forbidden("This institution is outside your assigned scope.");
     }
     activeInstitutionIds = [opts.institutionId];
   }
 
-  const conditions: Prisma.FdrWhereInput[] = [
-    { institutionId: { in: activeInstitutionIds } },
-  ];
+  const conditions: Prisma.FdrWhereInput[] = [];
+  if (activeInstitutionIds != null) {
+    conditions.push({ institutionId: { in: activeInstitutionIds } });
+  }
 
   if (opts.status != null) {
     conditions.push({ status: opts.status });
@@ -90,6 +105,18 @@ export async function listFdrs(
         [field]: { contains: opts.q, mode: "insensitive" as Prisma.QueryMode },
       })),
     });
+  }
+
+  if (opts.superseded === "exclude") {
+    conditions.push({ supersededByFdrId: null });
+  } else if (opts.superseded === "only") {
+    conditions.push({ supersededByFdrId: { not: null } });
+  }
+
+  if (opts.replacement === "only") {
+    conditions.push({ previousFdrId: { not: null } });
+  } else if (opts.replacement === "none") {
+    conditions.push({ previousFdrId: null });
   }
 
   const where: Prisma.FdrWhereInput = { AND: conditions };

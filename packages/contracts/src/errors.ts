@@ -15,6 +15,7 @@ export const ApiErrorCodeSchema = z.enum([
   "NOT_FOUND",
   "CONFLICT",
   "INTERNAL_ERROR",
+  "PASSWORD_CHANGE_REQUIRED",
 ]);
 
 export type ApiErrorCode = z.infer<typeof ApiErrorCodeSchema>;

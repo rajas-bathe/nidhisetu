@@ -12,6 +12,7 @@ export interface AuthenticatedUser {
   role: UserRole;
   institutionId: number | null;
   institution: { id: number; code: string; name: string } | null;
+  mustChangePassword: boolean;
 }
 
 declare module "express-serve-static-core" {
@@ -27,6 +28,7 @@ export function serializeUser(user: {
   role: UserRole;
   institutionId: number | null;
   institution?: { id: number; code: string; name: string } | null;
+  mustChangePassword?: boolean | null;
 }): CurrentUser {
   const institution =
     user.institution != null
@@ -42,6 +44,7 @@ export function serializeUser(user: {
     fullName: user.fullName,
     role: user.role,
     institution,
+    mustChangePassword: Boolean(user.mustChangePassword ?? false),
   };
 }
 
@@ -88,6 +91,7 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
         role: record.user.role,
         institutionId: record.user.institutionId,
         institution: record.user.institution ?? null,
+        mustChangePassword: record.user.mustChangePassword,
       },
     };
     next();

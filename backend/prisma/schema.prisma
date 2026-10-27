@@ -25,6 +25,7 @@ enum UserRole {
   COLLEGE_USER
   REVIEW_OFFICER
   APPROVING_AUTHORITY
+  SYSTEM_ADMIN
 }
 
 enum InstitutionStatus {
@@ -56,6 +57,7 @@ enum TaskType {
   RELEASE_RECOMMENDED
   RELEASE_DECISION
   GENERIC_REVIEW
+  REPLACEMENT_ACCEPTANCE
 }
 
 enum TaskStatus {
@@ -97,16 +99,45 @@ enum JobRunStatus {
   FAILED
 }
 
+/// Which officer capability a jurisdiction record grants. A single officer can
+/// hold both roles for the same institution (two separate rows).
+enum JurisdictionRole {
+  REVIEW_OFFICER
+  APPROVING_AUTHORITY
+}
+
+/// Kind of instrument the college submitted.
+enum InstrumentType {
+  SECURITY_DEPOSIT
+  BANK_GUARANTEE
+}
+
+/// Lifecycle of an officer-raised correction request on a case version.
+enum CorrectionStatus {
+  OPEN
+  RESPONDED
+  CANCELLED
+}
+
 // ---------------------------------------------------------------------------
 // Institutions, users, sessions, jurisdiction
 // ---------------------------------------------------------------------------
 
 model Institution {
   id        Int               @id @default(autoincrement())
+  /// Internal/demo identifier (unique); demo installs seed readable codes.
   code      String            @unique
+  /// Official government/registry identifier, when known (unique if set).
+  officialCode String?        @unique
   name      String
   city      String?
   state     String?
+  addressLine String?
+  postalCode String?
+  contactName String?
+  contactDesignation String?
+  contactEmail String?
+  contactPhone String?
   isDemo    Boolean           @default(true)
   status    InstitutionStatus @default(ACTIVE)
   createdAt DateTime          @default(now())
@@ -127,6 +158,11 @@ model User {
   role          UserRole
   institutionId Int?
   isActive      Boolean  @default(true)
+  /// True right after provisioning/reset: the user must change the temporary
+  /// password before any business endpoint answers.
+  mustChangePassword Boolean @default(false)
+  phone         String?
+  designation   String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @default(now()) @updatedAt
 
@@ -144,6 +180,9 @@ model User {
   taskAssignments Task[]
   auditEvents   AuditEvent[]
   notifications Notification[]
+  correctionRequests    CorrectionRequest[] @relation("CorrectionRequestedBy")
+  correctionResponses   CorrectionRequest[] @relation("CorrectionRespondedBy")
+  correctionCancellations CorrectionRequest[] @relation("CorrectionCancelledBy")
 }
 
 model Session {
@@ -162,18 +201,19 @@ model Session {
   @@index([userId, expiresAt])
 }
 
-/// Records which institutions an officer may work on. Authority to act always
-/// comes from the database, never from the request body.
+/// Records which institutions an officer may work on, and in which capability.
+/// Authority to act always comes from the database, never from the request body.
 model OfficerJurisdiction {
-  id            Int      @id @default(autoincrement())
+  id            Int             @id @default(autoincrement())
   officerId     Int
   institutionId Int
-  createdAt     DateTime @default(now())
+  role          JurisdictionRole @default(REVIEW_OFFICER)
+  createdAt     DateTime        @default(now())
 
   officer     User        @relation(fields: [officerId], references: [id])
   institution Institution @relation(fields: [institutionId], references: [id])
 
-  @@unique([officerId, institutionId])
+  @@unique([officerId, institutionId, role])
 }
 
 // ---------------------------------------------------------------------------
@@ -181,21 +221,24 @@ model OfficerJurisdiction {
 // ---------------------------------------------------------------------------
 
 model Fdr {
-  id            Int          @id @default(autoincrement())
-  publicCode    String       @unique
+  id            Int            @id @default(autoincrement())
+  publicCode    String         @unique
   institutionId Int
+  instrumentType InstrumentType @default(SECURITY_DEPOSIT)
   bankName      String
   bankBranch    String
   referenceNo   String
+  ifsc          String?
+  beneficiaryName String?
   amountMinor   BigInt
-  currency      String       @default("INR")
-  issueDate     DateTime     @db.Date
-  maturityDate  DateTime     @db.Date
-  remarks       String?      @db.Text
-  status        ReviewStatus @default(draft)
-  currentVersion Int         @default(1)
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @default(now()) @updatedAt
+  currency      String         @default("INR")
+  issueDate     DateTime       @db.Date
+  maturityDate  DateTime       @db.Date
+  remarks       String?        @db.Text
+  status        ReviewStatus   @default(draft)
+  currentVersion Int           @default(1)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @default(now()) @updatedAt
   submittedAt   DateTime?
   verifiedAt    DateTime?
 
@@ -217,6 +260,7 @@ model Fdr {
   tasks     Task[]
   releases  ReleaseRequest[]
   audits    AuditEvent[]
+  corrections CorrectionRequest[]
 
   @@index([institutionId, status])
   @@index([maturityDate])
@@ -226,23 +270,27 @@ model Fdr {
 
 /// Immutable snapshots of the submitted detail fields for each version.
 model FdrVersion {
-  id           Int      @id @default(autoincrement())
+  id           Int            @id @default(autoincrement())
   fdrId        Int
   versionNo    Int
+  instrumentType InstrumentType @default(SECURITY_DEPOSIT)
   bankName     String
   bankBranch   String
   referenceNo  String
+  ifsc         String?
+  beneficiaryName String?
   amountMinor  BigInt
   currency     String
-  issueDate    DateTime @db.Date
-  maturityDate DateTime @db.Date
-  remarks      String?  @db.Text
+  issueDate    DateTime       @db.Date
+  maturityDate DateTime       @db.Date
+  remarks      String?        @db.Text
   submittedById Int?
-  createdAt    DateTime @default(now())
+  createdAt    DateTime       @default(now())
 
   fdr         Fdr          @relation(fields: [fdrId], references: [id])
   submittedBy User?        @relation("VersionSubmitter", fields: [submittedById], references: [id])
   checks      VerificationCheck[]
+  corrections CorrectionRequest[]
 
   @@unique([fdrId, versionNo])
 }
@@ -284,6 +332,9 @@ model VerificationCheck {
   source         VerificationSource
   outcome        VerificationOutcome
   reason         String?             @db.Text
+  /// Where the evidence came from for this check (document id, bank portal
+  /// reference or free text). No contents of the referenced source are stored.
+  evidenceRef    String?
   checkedById    Int?
   checkedAt      DateTime            @default(now())
   /// Set when a later correction touches the corresponding field; the check
@@ -295,6 +346,10 @@ model VerificationCheck {
   fdr       Fdr         @relation(fields: [fdrId], references: [id])
   checkedBy User?       @relation(fields: [checkedById], references: [id])
   version   FdrVersion? @relation(fields: [fdrId, fdrVersionNo], references: [fdrId, versionNo])
+  /// Fields whose values this check relied on (for example a amount check
+  /// depends on amount and bank_reference). When a correction changes any of
+  /// them the check is invalidated in the same transaction as the new version.
+  dependentFields String[] @default([])
 
   @@index([fdrId, fdrVersionNo])
 }
@@ -338,6 +393,8 @@ model Notification {
   institutionId  Int?
   title          String         @db.Text
   body           String?        @db.Text
+  /// App route path the notification links to (for example "/cases/12").
+  linkPath       String?
   deliveryStatus DeliveryStatus @default(PENDING)
   readAt         DateTime?
   createdAt      DateTime       @default(now())
@@ -361,8 +418,13 @@ model ReleaseRequest {
   fdrId      Int
   requestedByUserId Int
   reason     String               @db.Text
+  /// College-supplied supporting evidence for the request (SAMPLE types).
+  evidenceType String?
+  evidenceRef  String?
   status     ReleaseRequestStatus @default(OPEN)
   decision   ReleaseStatus?       @default(none)
+  /// Which stage produced the decision: "reviewing_officer" or "approving_authority".
+  decisionStage String?
   decidedById Int?
   decisionNote String?            @db.Text
   recommendedById Int?
@@ -374,6 +436,12 @@ model ReleaseRequest {
   completedById Int?
   completedAt DateTime?
   completionNote String?          @db.Text
+  /// Recorded external completion evidence: type, reference and date must all
+  /// be present; completion never claims a payment was executed by the portal.
+  completionEvidenceType String?
+  completionEvidenceRef String?
+  completionEvidenceDate DateTime? @db.Date
+  completedAmountMinor BigInt?
 
   fdr           Fdr   @relation(fields: [fdrId], references: [id])
   requestedBy   User  @relation("ReleaseRequestedBy", fields: [requestedByUserId], references: [id])
@@ -383,6 +451,42 @@ model ReleaseRequest {
 
   @@index([fdrId, status])
   @@index([requestedByUserId])
+}
+
+// ---------------------------------------------------------------------------
+// Corrections
+// ---------------------------------------------------------------------------
+
+/// Field-specific correction requests raised by a reviewing officer against a
+/// submitted case version. The college responds by editing only the listed
+/// fields, which creation of the next immutable version handles transactionally.
+model CorrectionRequest {
+  id           Int              @id @default(autoincrement())
+  fdrId        Int
+  /// Version the officer reviewed when raising this correction.
+  fdrVersionNo Int
+  fields       Json
+  note         String?          @db.Text
+  status       CorrectionStatus @default(OPEN)
+  requestedById Int
+  respondedById Int?
+  /// Version created by the college's response.
+  respondedVersionNo Int?
+  respondNote  String?          @db.Text
+  respondedAt  DateTime?
+  cancelledById Int?
+  cancelledAt  DateTime?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @default(now()) @updatedAt
+
+  fdr         Fdr   @relation(fields: [fdrId], references: [id])
+  version     FdrVersion? @relation(fields: [fdrId, fdrVersionNo], references: [fdrId, versionNo])
+  requestedBy User  @relation("CorrectionRequestedBy", fields: [requestedById], references: [id])
+  respondedBy User? @relation("CorrectionRespondedBy", fields: [respondedById], references: [id])
+  cancelledBy User? @relation("CorrectionCancelledBy", fields: [cancelledById], references: [id])
+
+  @@index([fdrId, status])
+  @@index([requestedById])
 }
 
 // ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ export const TaskTypeSchema = z.enum([
   "RELEASE_RECOMMENDED",
   "RELEASE_DECISION",
   "GENERIC_REVIEW",
+  "REPLACEMENT_ACCEPTANCE",
 ]);
 
 export type TaskType = z.infer<typeof TaskTypeSchema>;
@@ -20,6 +21,12 @@ export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export const ListTasksQuerySchema = z.object({
   status: TaskStatusSchema.default("OPEN"),
   onlyOverdue: z.coerce.boolean().optional(),
+  /** Narrow to one case (staff) / own institution's case (college). */
+  fdrId: z.coerce.number().int().positive().optional(),
+  /** Single type filter (drill-downs). */
+  type: TaskTypeSchema.optional(),
+  /** Free-text search in the task title/detail. */
+  q: z.string().trim().max(120).optional(),
 });
 
 export type ListTasksQuery = z.infer<typeof ListTasksQuerySchema>;
@@ -60,4 +67,5 @@ export const TASK_TYPE_LABELS: Record<TaskType, string> = {
   RELEASE_RECOMMENDED: "Release recommendation",
   RELEASE_DECISION: "Release decision",
   GENERIC_REVIEW: "Review follow-up",
+  REPLACEMENT_ACCEPTANCE: "Accept replacement",
 };

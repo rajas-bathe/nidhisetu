@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { LocalDateSchema, MoneySchema, TimestampSchema } from "./common.js";
-
 /**
  * Review state of a submission. Kept strictly separate from the derived
  * date condition and from the release status.
@@ -40,6 +39,7 @@ export const FdrListItemSchema = z.object({
     code: z.string(),
     name: z.string(),
   }),
+  instrumentType: z.enum(["SECURITY_DEPOSIT", "BANK_GUARANTEE"]),
   bankName: z.string(),
   bankBranch: z.string(),
   referenceNo: z.string(),
@@ -70,6 +70,13 @@ export const ListFdrsQuerySchema = z.object({
   institutionId: z.coerce.number().int().positive().optional(),
   dateCondition: DateConditionSchema.optional(),
   sort: FdrSortOptionSchema.default("maturity_asc"),
+  /**
+   * Superseded filter for drill-downs. Default (absent) keeps the previous
+   * behaviour of listing everything in scope.
+   */
+  superseded: z.enum(["include", "exclude", "only"]).optional(),
+  /** Replacement drill-downs: instruments that are replacements (only) or not (none). */
+  replacement: z.enum(["only", "none"]).optional(),
 });
 
 export type ListFdrsQuery = z.infer<typeof ListFdrsQuerySchema>;

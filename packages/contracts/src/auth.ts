@@ -10,11 +10,12 @@ export const UserRoleSchema = z.enum([
   "COLLEGE_USER",
   "REVIEW_OFFICER",
   "APPROVING_AUTHORITY",
+  "SYSTEM_ADMIN",
 ]);
 
 export type UserRole = z.infer<typeof UserRoleSchema>;
 
-export const LoginContextSchema = z.enum(["college", "officer"]);
+export const LoginContextSchema = z.enum(["college", "officer", "admin"]);
 
 export type LoginContext = z.infer<typeof LoginContextSchema>;
 
@@ -28,7 +29,9 @@ export const LoginRequestSchema = z.object({
   password: z.string().min(1, "Password is required").max(200),
   /**
    * Which portal the user logged in from. Purely a guard: a college account
-   * cannot authenticate through the officer portal and vice versa.
+   * cannot authenticate through the officer portal and vice versa. System
+   * administrators may use the dedicated administration entry or the officer
+   * portal; every other combination is rejected.
    */
   context: LoginContextSchema,
 });
@@ -41,6 +44,8 @@ export const CurrentUserSchema = z.object({
   fullName: z.string(),
   role: UserRoleSchema,
   institution: InstitutionRefSchema.nullable(),
+  /** True when the account must replace its temporary password first. */
+  mustChangePassword: z.boolean().default(false),
 });
 
 export type CurrentUser = z.infer<typeof CurrentUserSchema>;
@@ -50,3 +55,11 @@ export const CurrentUserResponseSchema = z.object({
 });
 
 export type CurrentUserResponse = z.infer<typeof CurrentUserResponseSchema>;
+
+/** Changing the temporary password; the new value must satisfy the sample rules. */
+export const ChangePasswordRequestSchema = z.object({
+  currentPassword: z.string().min(1, "Current password is required").max(200),
+  newPassword: z.string().min(1, "New password is required").max(200),
+});
+
+export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;

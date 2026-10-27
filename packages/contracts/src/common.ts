@@ -52,3 +52,22 @@ export const InstitutionRefSchema = z.object({
 });
 
 export type InstitutionRef = z.infer<typeof InstitutionRefSchema>;
+
+/**
+ * A deposit amount the user typed in rupees (for example "500000" or "12345.50").
+ * validated and converted to exact minor units on the server; no floating point
+ * participates. May be an empty string only where the payload allows drafts.
+ */
+export const RupeeAmountSchema = z
+  .string()
+  .regex(/^(?:0|[1-9]\d{0,11})(?:\.\d{1,2})?$/, "Enter the amount in rupees (for example 500000 or 500000.55)");
+
+export type RupeeAmount = z.infer<typeof RupeeAmountSchema>;
+
+/** Optional variant used for draft saves and completion amounts. */
+export const RupeeAmountOptionalSchema = z
+  .string()
+  .regex(/^(?:[1-9]\d{0,11}|0)(?:\.\d{1,2})?$/, "Enter the amount in rupees (for example 500000 or 500000.55)")
+  .or(z.literal(""));
+
+export type RupeeAmountOptional = z.infer<typeof RupeeAmountOptionalSchema>;

@@ -38,8 +38,11 @@ function demoEmails() {
   return {
     collegeLotus: (process.env.DEMO_COLLEGE_A_EMAIL ?? "college.lotus@demo.fdrportal.local").toLowerCase(),
     collegeShivalik: (process.env.DEMO_COLLEGE_B_EMAIL ?? "college.shivalik@demo.fdrportal.local").toLowerCase(),
+    collegeKaveri: (process.env.DEMO_COLLEGE_C_EMAIL ?? "college.kaveri@demo.fdrportal.local").toLowerCase(),
     reviewOfficer: (process.env.DEMO_REVIEW_OFFICER_EMAIL ?? "officer.review@demo.fdrportal.local").toLowerCase(),
+    reviewOfficer2: (process.env.DEMO_REVIEW_OFFICER_2_EMAIL ?? "officer.isolated@demo.fdrportal.local").toLowerCase(),
     approvingAuthority: (process.env.DEMO_APPROVER_EMAIL ?? "authority.approve@demo.fdrportal.local").toLowerCase(),
+    systemAdmin: (process.env.DEMO_ADMIN_EMAIL ?? "system.admin@demo.fdrportal.local").toLowerCase(),
   };
 }
 
@@ -47,8 +50,11 @@ function demoPasswords() {
   return {
     collegeLotus: process.env.DEMO_COLLEGE_A_PASSWORD ?? "Demo#College1",
     collegeShivalik: process.env.DEMO_COLLEGE_B_PASSWORD ?? "Demo#College2",
+    collegeKaveri: process.env.DEMO_COLLEGE_C_PASSWORD ?? "Demo#College3",
     reviewOfficer: process.env.DEMO_REVIEW_OFFICER_PASSWORD ?? "Demo#Officer",
+    reviewOfficer2: process.env.DEMO_REVIEW_OFFICER_2_PASSWORD ?? "Demo#Officer2",
     approvingAuthority: process.env.DEMO_APPROVER_PASSWORD ?? "Demo#Authority",
+    systemAdmin: process.env.DEMO_ADMIN_PASSWORD ?? "Demo#Admin",
   };
 }
 
@@ -64,7 +70,7 @@ function isLocalHost(databaseUrl: string): boolean {
 
 interface FdrSeedDef {
   code: string;
-  institution: "lotus" | "shivalik";
+  institution: "lotus" | "shivalik" | "kaveri";
   bankName: string;
   bankBranch: string;
   referenceNo: string;
@@ -73,7 +79,7 @@ interface FdrSeedDef {
   maturityDate: string;
   remarks?: string;
   status: "verified" | "submitted" | "under_review" | "discrepancy";
-  submittedBy: "collegeLotus" | "collegeShivalik";
+  submittedBy: "collegeLotus" | "collegeShivalik" | "collegeKaveri";
   submittedDaysAgo?: number;
   verified?: boolean;
 }
@@ -101,11 +107,21 @@ interface VerificationCheckSeedDef {
   checkedBy?: "reviewOfficer";
 }
 
-async function ensureInstitution(db: Db, args: { code: string; name: string; city: string; state: string }) {
+async function ensureInstitution(db: Db, args: {
+  code: string; name: string; city: string; state: string;
+  contactName?: string; contactEmail?: string;
+}) {
   return db.institution.upsert({
     where: { code: args.code },
-    update: { name: args.name, city: args.city, state: args.state, isDemo: true, status: "ACTIVE" },
-    create: { code: args.code, name: args.name, city: args.city, state: args.state, isDemo: true },
+    update: {
+      name: args.name, city: args.city, state: args.state,
+      isDemo: true, status: "ACTIVE",
+      contactName: args.contactName ?? null, contactEmail: args.contactEmail ?? null,
+    },
+    create: {
+      code: args.code, name: args.name, city: args.city, state: args.state,
+      isDemo: true, contactName: args.contactName ?? null, contactEmail: args.contactEmail ?? null,
+    },
   });
 }
 
@@ -115,7 +131,7 @@ async function ensureUser(
     email: string;
     passwordHash: string;
     fullName: string;
-    role: "COLLEGE_USER" | "REVIEW_OFFICER" | "APPROVING_AUTHORITY";
+    role: "COLLEGE_USER" | "REVIEW_OFFICER" | "APPROVING_AUTHORITY" | "SYSTEM_ADMIN";
     institutionId: number | null;
   },
 ) {
@@ -127,6 +143,7 @@ async function ensureUser(
       role: args.role,
       institutionId: args.institutionId,
       isActive: true,
+      mustChangePassword: false,
     },
     create: {
       email: args.email,
@@ -138,11 +155,18 @@ async function ensureUser(
   });
 }
 
-async function ensureJurisdiction(db: Db, officerId: number, institutionId: number) {
+async function ensureJurisdiction(db: Db, officerId: number, institutionId: number, role: "REVIEW_OFFICER" | "APPROVING_AUTHORITY") {
+  // Demo-era repair: before roles existed on jurisdiction rows, the approving
+  // authority row may carry the default REVIEW_OFFICER role. Re-assert the
+  // intended role on the existing demo row instead of deleting anything.
+  await db.officerJurisdiction.updateMany({
+    where: { officerId, institutionId, role: "REVIEW_OFFICER", institution: { isDemo: true } },
+    data: { role },
+  });
   return db.officerJurisdiction.upsert({
-    where: { officerId_institutionId: { officerId, institutionId } },
+    where: { officerId_institutionId_role: { officerId, institutionId, role } },
     update: {},
-    create: { officerId, institutionId },
+    create: { officerId, institutionId, role },
   });
 }
 
@@ -207,25 +231,40 @@ async function main(): Promise<void> {
 
   console.log(`Seeding demo data (upsert-only, no deletes) into ${isLocalHost(databaseUrl) ? "local database" : "REMOTE DATABASE (SEED_ALLOW_REMOTE=true)"}...`);
 
+  const emails = demoEmails();
+
   // --- Institutions ----------------------------------------------------------
   const lotus = await ensureInstitution(prisma, {
     code: "DEMO-LOTUS-IT",
     name: "Lotus Institute of Technology",
     city: "Pune",
     state: "Maharashtra",
+    contactName: "Dr. Meera Joshi",
+    contactEmail: emails.collegeLotus,
   });
   const shivalik = await ensureInstitution(prisma, {
     code: "DEMO-SHIV-ENGG",
     name: "Shivalik Engineering College",
     city: "Ropar",
     state: "Punjab",
+    contactName: "Prof. Anil Thakur",
+    contactEmail: emails.collegeShivalik,
+  });
+  // Third demo college with NO officer/authority jurisdiction: its submitted
+  // case stays out of scope for every officer (isolation demonstrations).
+  const kaveri = await ensureInstitution(prisma, {
+    code: "DEMO-KAV-NURSING",
+    name: "Kaveri Nursing College",
+    city: "Mysuru",
+    state: "Karnataka",
+    contactName: "Dr. Lakshmi Rao",
+    contactEmail: emails.collegeKaveri,
   });
 
   // --- Users -----------------------------------------------------------------
-  const emails = demoEmails();
   const passwords = demoPasswords();
   const hashList = await Promise.all(Object.values(passwords).map((value) => bcrypt.hash(value, 12)));
-  const [hashA, hashB, hashO, hashP] = hashList;
+  const [hashA, hashB, hashC, hashO, hashO2, hashP, hashS] = hashList;
 
   const collegeLotus = await ensureUser(prisma, {
     email: emails.collegeLotus,
@@ -241,10 +280,26 @@ async function main(): Promise<void> {
     role: "COLLEGE_USER",
     institutionId: shivalik.id,
   });
+  const collegeKaveri = await ensureUser(prisma, {
+    email: emails.collegeKaveri,
+    passwordHash: hashC,
+    fullName: "Dr. Lakshmi Rao (Registrar, Kaveri)",
+    role: "COLLEGE_USER",
+    institutionId: kaveri.id,
+  });
   const reviewOfficer = await ensureUser(prisma, {
     email: emails.reviewOfficer,
     passwordHash: hashO,
     fullName: "Officer R. Deshpande",
+    role: "REVIEW_OFFICER",
+    institutionId: null,
+  });
+  // Intentionally has NO jurisdiction assignments: usable to demonstrate that
+  // an officer without an assigned scope sees no records outside it.
+  const reviewOfficer2 = await ensureUser(prisma, {
+    email: emails.reviewOfficer2,
+    passwordHash: hashO2,
+    fullName: "Officer N. Kulkarni (no assignments)",
     role: "REVIEW_OFFICER",
     institutionId: null,
   });
@@ -255,11 +310,17 @@ async function main(): Promise<void> {
     role: "APPROVING_AUTHORITY",
     institutionId: null,
   });
+  const systemAdmin = await ensureUser(prisma, {
+    email: emails.systemAdmin,
+    passwordHash: hashS,
+    fullName: "System Administrator (Portal Setup)",
+    role: "SYSTEM_ADMIN",
+    institutionId: null,
+  });
 
-  for (const officer of [reviewOfficer, approvingAuthority]) {
-    for (const institution of [lotus, shivalik]) {
-      await ensureJurisdiction(prisma, officer.id, institution.id);
-    }
+  for (const institution of [lotus, shivalik]) {
+    await ensureJurisdiction(prisma, reviewOfficer.id, institution.id, "REVIEW_OFFICER");
+    await ensureJurisdiction(prisma, approvingAuthority.id, institution.id, "APPROVING_AUTHORITY");
   }
 
   // --- Sample policy row (explicitly labelled sample configuration) ----------
@@ -445,8 +506,28 @@ async function main(): Promise<void> {
     submittedDaysAgo: 3,
   });
 
+  // Out-of-scope isolation case: seeded WITHOUT any officer/authority
+  // jurisdiction, assigned reviewer tasks, or correction request.
+  await makeFdr({
+    code: "FDR-2026-0015",
+    institutionId: kaveri.id,
+    bankName: "Canara Bank",
+    bankBranch: "Mysuru Jayalakshmipuram",
+    referenceNo: "CNRB/2026/KV101",
+    amountMinor: paise(2_50_00),
+    issueDate: addDays(today, -220),
+    maturityDate: addDays(today, 145),
+    remarks: "Isolation demonstration case: no reviewer has jurisdiction over this college.",
+    status: "submitted",
+    submittedById: collegeKaveri.id,
+    submittedDaysAgo: 6,
+  });
+
   void fdr0001;
   void fdr0008;
+
+  void systemAdmin;
+  void reviewOfficer2;
 
   // --- Verification evidence (only seeded when absent - checks are append-only)
   const checkDefs: (VerificationCheckSeedDef & { fdrId: number; checkedById?: number })[] = [
@@ -601,17 +682,16 @@ async function main(): Promise<void> {
       action: "SEED_DEMO_DATA",
       detail: {
         note: "Synthetic demonstration dataset re-asserted (upsert-only; no rows deleted).",
-        institutions: [lotus.code, shivalik.code],
+        institutions: [lotus.code, shivalik.code, kaveri.code],
       },
       institutionId: lotus.id,
     },
   });
 
-  void approvingAuthority;
-
   console.log("Seed complete (demo data upserted; no rows deleted).");
   console.log("Demo credentials live in backend/.env under the DEMO_* keys.");
-  console.log("Institutions:", lotus.code, shivalik.code);
+  console.log("Institutions:", lotus.code, shivalik.code, kaveri.code);
+  console.log("Accounts >", emails.systemAdmin, emails.collegeLotus, emails.collegeShivalik, emails.collegeKaveri, emails.reviewOfficer, emails.reviewOfficer2, emails.approvingAuthority);
   console.log("REMINDER: all demo rows are SAMPLE data - not real instruments and not official AICTE rules.");
 }
 
