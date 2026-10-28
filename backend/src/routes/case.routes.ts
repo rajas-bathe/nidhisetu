@@ -7,7 +7,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { getCaseDetail, getCaseGuidance } from "../services/caseDetail.service.js";
 import { requireAuth } from "../middleware/authenticate.js";
-import { fromZod, validationError } from "../errors.js";
+import { validationError } from "../errors.js";
 
 export const caseRouter = Router();
 

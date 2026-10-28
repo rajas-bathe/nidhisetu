@@ -1,6 +1,6 @@
 /**
  * System-administration college module endpoints (assertAdmin inside every service call):
- * GET    /api/instruments...no— /api/institutions                       - filtered/paged directory
+ * GET    /api/institutions                                       - filtered/paged directory
  * GET    /api/institutions/officers?role=...                            - eligible officer directory for selects
  * POST   /api/institutions                                              - create a college record
  * GET    /api/institutions/:institutionId                               - admin workspace detail for one college
@@ -58,9 +58,10 @@ institutionsRouter.get("/officers", async (req, res, next) => {
 institutionsRouter.get("/", async (req, res, next) => {
   try {
     const { user } = requireAuth(req);
+    void user; // the listing is admin-global; the service asserts the role itself
     const parsed = QuerySchema.safeParse(req.query);
     if (!parsed.success) throw fromZod(parsed.error);
-    const result = await listInstitutions(user, {
+    const result = await listInstitutions({
       page: parsed.data.page,
       pageSize: parsed.data.pageSize,
       q: parsed.data.q,

@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
-import type { LoginRequest } from "@sih26265/contracts";
+import type { ChangePasswordRequest, LoginRequest } from "@sih26265/contracts";
+import { ChangePasswordRequestSchema } from "@sih26265/contracts";
 import { config } from "../config/env.js";
-import { attemptLogin, logoutSession } from "../services/auth.service.js";
+import { attemptLogin, changeOwnPassword, logoutSession } from "../services/auth.service.js";
 import { authenticate, serializeUser } from "../middleware/authenticate.js";
 import { loginRateLimiter } from "../middleware/rateLimit.js";
 import { recordAudit } from "../services/audit.service.js";
@@ -19,7 +20,7 @@ const LoginBodySchema = z.object({
     .string({ message: "Password is required" })
     .min(1, "Password is required")
     .max(200, "Password is too long"),
-  context: z.enum(["college", "officer"]),
+  context: z.enum(["college", "officer", "admin"]),
 });
 
 function clientIp(req: { ip?: string; socket?: { remoteAddress?: string | null } }): string {
@@ -118,4 +119,30 @@ authRouter.post("/logout", authenticate, async (req, res, next) => {
 
 authRouter.get("/me", authenticate, (req, res) => {
   res.status(200).json({ user: serializeUser(req.auth!.user) });
+});
+
+/**
+ * POST /api/auth/change-password - replaces the temporary password (forced at
+ * first sign-in) or the account's own password. Other sessions are revoked;
+ * the current session stays valid so the UI can continue to the workspace.
+ */
+authRouter.post("/change-password", authenticate, async (req, res, next) => {
+  try {
+    const auth = req.auth!;
+    const parsed = ChangePasswordRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
+      throw fromZod(parsed.error);
+    }
+    const body = parsed.data satisfies ChangePasswordRequest;
+    await changeOwnPassword(auth.user.id, auth.sessionId, body.currentPassword, body.newPassword);
+    await recordAudit({
+      action: "AUTH_PASSWORD_CHANGED",
+      actorUserId: auth.user.id,
+      detail: { note: "password replaced by the account owner at the portal" },
+      correlationId: typeof res.locals.requestId === "string" ? res.locals.requestId : null,
+    });
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
 });
