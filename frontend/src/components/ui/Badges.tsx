@@ -24,6 +24,10 @@ const badgeClasses: Record<string, string> = {
   COLLEGE_USER: "bg-navy-100 text-navy-900 ring-navy-800/40",
   REVIEW_OFFICER: "bg-indigo-50 text-indigo-700 ring-indigo-300",
   APPROVING_AUTHORITY: "bg-violet-50 text-violet-700 ring-violet-300",
+  SYSTEM_ADMIN: "bg-slate-200 text-slate-800 ring-slate-400",
+  // corrections
+  OPEN_REQUEST: "bg-sky-50 text-sky-700 ring-sky-300",
+  RESPONDED: "bg-teal-50 text-teal-700 ring-teal-300",
   // tasks
   OPEN: "bg-sky-50 text-sky-700 ring-sky-300",
   IN_PROGRESS: "bg-indigo-50 text-indigo-700 ring-indigo-300",
@@ -82,6 +86,13 @@ const ROLE_LABELS: Record<UserRole, string> = {
   COLLEGE_USER: "Institution user",
   REVIEW_OFFICER: "Reviewing officer",
   APPROVING_AUTHORITY: "Approving authority",
+  SYSTEM_ADMIN: "System admin",
+};
+
+const CORRECTION_STATUS_LABELS: Record<"OPEN" | "RESPONDED" | "CANCELLED", string> = {
+  OPEN: "Awaiting college",
+  RESPONDED: "Answered",
+  CANCELLED: "Cancelled",
 };
 
 export function ReviewStatusBadge({ status }: { status: ReviewStatus }) {
@@ -106,4 +117,8 @@ export function TaskTypeBadge({ type }: { type: TaskType }) {
 
 export function RoleBadge({ role }: { role: UserRole }) {
   return <StatusBadge value={role} label={ROLE_LABELS[role]} />;
+}
+
+export function CorrectionStatusBadge({ status }: { status: "OPEN" | "RESPONDED" | "CANCELLED" }) {
+  return <StatusBadge value={status === "OPEN" ? "OPEN_REQUEST" : status} label={CORRECTION_STATUS_LABELS[status]} />;
 }

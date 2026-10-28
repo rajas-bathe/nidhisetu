@@ -31,3 +31,21 @@ export function formatDateTime(iso: string): string {
     new Date(iso),
   );
 }
+
+/** Compact timestamp for dense tables: "21 Apr 2026, 3:05 pm". */
+export function formatDateTimeShort(iso: string): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  }).format(new Date(iso));
+}
+
+/** Date-only part of an ISO timestamp, or a placeholder when absent. */
+export function formatTimestampDate(iso: string | null | undefined): string {
+  if (iso == null) return "not yet";
+  return formatLocalDate(iso.slice(0, 10));
+}

@@ -1,11 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { Eye, EyeOff, Landmark, Building2 } from "lucide-react";
-import { ApiClientError, type ApiErrorCode } from "@sih26265/contracts";
+import { Eye, EyeOff, Landmark, Building2, ShieldCheck } from "lucide-react";
+import { ApiClientError } from "@sih26265/contracts";
 import { useAuth } from "../../auth/AuthProvider";
 import { Button } from "../../components/ui/Button";
 
-type Portal = "college" | "officer";
+type Portal = "college" | "officer" | "admin";
 
 const PORTAL_COPY: Record<Portal, { title: string; subtitle: string }> = {
   college: {
@@ -16,32 +16,19 @@ const PORTAL_COPY: Record<Portal, { title: string; subtitle: string }> = {
     title: "AICTE officer login",
     subtitle: "Reviewing officers and the approving authority use the same entry point; your role decides your dashboard.",
   },
+  admin: {
+    title: "Administration login",
+    subtitle: "System administration only: manage colleges, accounts and supervise the register.",
+  },
 };
 
 /** Field-level + general error mapping for the shared ApiError shape. */
 function describeError(error: unknown): { message: string } {
   if (error instanceof ApiClientError) {
-    if (error.code === "WRONG_LOGIN_PORTAL") {
-      return { message: error.message };
-    }
     return { message: error.message };
   }
   return { message: "Could not reach the server. Please try again." };
 }
-
-const DEV_HINTS: Record<ApiErrorCode, string | null> = {
-  VALIDATION_ERROR: null,
-  INVALID_CREDENTIALS: null,
-  ACCOUNT_INACTIVE: null,
-  UNAUTHENTICATED: null,
-  FORBIDDEN: null,
-  WRONG_LOGIN_PORTAL: null,
-  RATE_LIMITED: null,
-  NOT_FOUND: null,
-  CONFLICT: null,
-  INTERNAL_ERROR: null,
-};
-void DEV_HINTS;
 
 export function LoginPage({ portal }: { portal: Portal }) {
   const { user, login } = useAuth();
@@ -97,7 +84,7 @@ export function LoginPage({ portal }: { portal: Portal }) {
             to="/"
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-slate-700"
           >
-            {portal === "officer" ? <Landmark className="h-4 w-4" aria-hidden /> : <Building2 className="h-4 w-4" aria-hidden />}
+            {portal === "officer" ? <Landmark className="h-4 w-4" aria-hidden /> : portal === "admin" ? <ShieldCheck className="h-4 w-4" aria-hidden /> : <Building2 className="h-4 w-4" aria-hidden />}
             Security Deposit &amp; FDR Portal
           </Link>
         </div>
@@ -177,11 +164,23 @@ export function LoginPage({ portal }: { portal: Portal }) {
                 Use the officer login
               </Link>
             </p>
+          ) : portal === "admin" ? (
+            <p className="mt-4 text-center text-xs text-slate-500">
+              Officer accounts must use the{" "}
+              <Link to="/login/officer" className="font-medium text-teal-700 hover:underline">
+                officer login
+              </Link>
+              .
+            </p>
           ) : (
             <p className="mt-4 text-center text-xs text-slate-500">
               College users must use the{" "}
               <Link to="/login/college" className="font-medium text-teal-700 hover:underline">
                 college login
+              </Link>
+              {" "}or the{" "}
+              <Link to="/login/admin" className="font-medium text-teal-700 hover:underline">
+                administration login
               </Link>
               .
             </p>
