@@ -14,7 +14,6 @@
  */
 import { beforeEach, expect, it } from "vitest";
 import type { Express } from "express";
-import request from "supertest";
 import { dbDescribe, DB_TESTS_ENABLED } from "./helpers/guards.js";
 import { resetDatabase, prisma } from "./helpers/db.js";
 import {
