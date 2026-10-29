@@ -25,7 +25,7 @@ export async function createInstitution(index: number): Promise<InstitutionRowFi
 
 export async function createUser(args: {
   email: string;
-  role: "COLLEGE_USER" | "REVIEW_OFFICER" | "APPROVING_AUTHORITY";
+  role: "COLLEGE_USER" | "REVIEW_OFFICER" | "APPROVING_AUTHORITY" | "SYSTEM_ADMIN";
   institutionId?: number | null;
   fullName?: string;
   isActive?: boolean;
@@ -44,8 +44,12 @@ export async function createUser(args: {
   return { id: row.id, email: row.email };
 }
 
-export async function grantJurisdiction(officerId: number, institutionId: number): Promise<void> {
-  await prisma.officerJurisdiction.create({ data: { officerId, institutionId } });
+export async function grantJurisdiction(
+  officerId: number,
+  institutionId: number,
+  role: "REVIEW_OFFICER" | "APPROVING_AUTHORITY" = "REVIEW_OFFICER",
+): Promise<void> {
+  await prisma.officerJurisdiction.create({ data: { officerId, institutionId, role } });
 }
 
 export function appInstance(): Express {
@@ -55,7 +59,7 @@ export function appInstance(): Express {
 export async function loginAgent(
   app: Express,
   email: string,
-  context: "college" | "officer",
+  context: "college" | "officer" | "admin",
   password = DEMO_PASSWORD,
 ): Promise<SupertestAgent> {
   const agent = request.agent(app);

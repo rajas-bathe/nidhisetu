@@ -114,7 +114,7 @@ export function SubmitWizardPage() {
       if (form.ifsc.trim().length > 0 || form.beneficiaryName.trim().length > 0 || form.remarks.trim().length > 0) {
         // Optional fields are saved through the draft patch so the create
         // payload stays minimal; server accepts both shapes.
-        await updateFdrDraft(created.id, {
+        await updateFdrDraft(created.fdrId, {
           ifsc: payload.ifsc.length > 0 ? payload.ifsc : undefined,
           beneficiaryName: payload.beneficiaryName.length > 0 ? payload.beneficiaryName : undefined,
           remarks: payload.remarks.length > 0 ? payload.remarks : undefined,
@@ -123,7 +123,7 @@ export function SubmitWizardPage() {
       return created;
     },
     onSuccess: (created) => {
-      setCreatedFdrId(created.id);
+      setCreatedFdrId(created.fdrId);
       setFieldErrors({});
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },

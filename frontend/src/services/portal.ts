@@ -149,9 +149,9 @@ export function fetchCaseGuidance(fdrId: number): Promise<CaseGuidance> {
   return apiFetch<CaseGuidance>(`/api/cases/${fdrId}/guidance`);
 }
 
-export function createFdrDraft(input: FdrDraftInput, replacesFdrId?: number): Promise<{ id: number; publicCode: string }> {
+export function createFdrDraft(input: FdrDraftInput, replacesFdrId?: number): Promise<{ fdrId: number; publicCode: string }> {
   const query = replacesFdrId == null ? "" : `?replacesFdrId=${replacesFdrId}`;
-  return apiFetch<{ id: number; publicCode: string }>(`/api/fdrs${query}`, {
+  return apiFetch<{ fdrId: number; publicCode: string }>(`/api/fdrs${query}`, {
     method: "POST",
     body: JSON.stringify(input),
   });

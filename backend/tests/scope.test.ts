@@ -166,11 +166,15 @@ dbDescribe("task inbox isolation", () => {
     expect(tasksB.body.items.some((t: { title: string | null }) => t.title === "Review A")).toBe(false);
   });
 
-  it("officer tasks are personally assigned; school tasks do not appear", async () => {
+  it("officer inbox combines personal tasks and tasks of assigned institutions", async () => {
     const agent = await loginAgent(app, fx.officer.email, "officer");
     const res = await agent.get("/api/tasks");
-    expect(res.body.items.length).toBe(1);
-    expect(res.body.items[0].title).toBe("Review A");
+    // v2 semantics: the officer sees their personally assigned task plus the
+    // institution-assigned task of an institution in their jurisdiction.
+    expect(res.body.items.length).toBe(2);
+    const titles = res.body.items.map((t: { title: string | null }) => t.title);
+    expect(titles).toContain("Review A");
+    expect(titles).toContain("Correct B");
   });
 });
 

@@ -13,6 +13,7 @@ import {
   createInstitution,
   createTask,
   createUser,
+  grantJurisdiction,
   loginAgent,
 } from "./helpers/scenario.js";
 
@@ -73,12 +74,16 @@ dbDescribe("GET /api/dashboard (college)", () => {
     const res = await agent.get("/api/dashboard");
 
     expect(res.status).toBe(200);
+    // CollegeCounters (v2): scope = this institution only.
     expect(res.body.counters).toEqual({
-      pendingVerification: 1,
-      awaitingMyAction: 2,
-      overdueTasks: 1,
-      approachingMaturity: 1, // only the 12-day case; the -20-day one is MATURed not approaching
-      currentInstruments: 4,
+      activeInstruments: 4,
+      activeAmount: { currency: "INR", amountMinor: "40000000" }, // 4 x 100000.00
+      drafts: 0,
+      awaitingReview: 1, // the submitted case
+      correctionsRequired: 0,
+      approachingMaturity: 2, // the 12-day case + the matured one (non-current)
+      openReplacementObligations: 2,
+      pendingReleaseRequests: 0,
     });
   });
 
@@ -117,12 +122,23 @@ dbDescribe("GET /api/dashboard (college)", () => {
 
 dbDescribe("GET /api/dashboard (officer)", () => {
   it("officer counters describe their assigned workload", async () => {
+    // The officer needs jurisdiction over the fixture institution for the
+    // case-scoped counters and the linked task to be visible.
+    await grantJurisdiction(fx.officer.id, fx.inst.id);
     const agent = await loginAgent(app, fx.officer.email, "officer");
     const res = await agent.get("/api/dashboard");
 
     expect(res.status).toBe(200);
-    expect(res.body.counters.awaitingMyAction).toBe(1);
-    expect(res.body.counters.overdueTasks).toBe(0);
+    expect(res.body.counters).toEqual({
+      submittedAwaitingReview: 1, // the submitted case within jurisdiction
+      underReview: 0,
+      correctionsAwaitingCollege: 0,
+      correctedReadyForReReview: 0,
+      replacementsAwaitingReview: 0,
+      releasesAwaitingRecommendation: 0,
+      assignedTasks: 1, // the personally assigned review task
+      overdueTasks: 0,
+    });
     expect(res.body.role).toBe("REVIEW_OFFICER");
   });
 });
