@@ -181,17 +181,34 @@ dbDescribe("dashboard counters are scoped", () => {
 
     expect(res.status).toBe(200);
     expect(res.body.institution.id).toBe(fx.instA.id);
-    expect(res.body.counters.pendingVerification).toBe(1); // fdrA is 'submitted'
-    expect(res.body.counters.currentInstruments).toBe(1);
-    expect(res.body.counters.awaitingMyAction).toBe(0); // A's task is the officer's
+    // v2 college counters: institution A scope only.
+    expect(res.body.counters).toEqual({
+      activeInstruments: 1,
+      activeAmount: { currency: "INR", amountMinor: "10000000" },
+      drafts: 0,
+      awaitingReview: 1, // fdrA is 'submitted'
+      correctionsRequired: 0,
+      approachingMaturity: 0, // 90 days out: current
+      openReplacementObligations: 0,
+      pendingReleaseRequests: 0,
+    });
   });
 
   it("officer dashboard reflects assigned work", async () => {
     const agent = await loginAgent(app, fx.officer.email, "officer");
     const res = await agent.get("/api/dashboard");
     expect(res.status).toBe(200);
-    expect(res.body.counters.pendingVerification).toBe(1);
-    expect(res.body.counters.awaitingMyAction).toBe(1);
+    // v2 officer counters: jurisdiction cases + personally assigned tasks.
+    expect(res.body.counters).toEqual({
+      submittedAwaitingReview: 1, // fdrA is 'submitted' within jurisdiction
+      underReview: 0,
+      correctionsAwaitingCollege: 0,
+      correctedReadyForReReview: 0,
+      replacementsAwaitingReview: 0,
+      releasesAwaitingRecommendation: 0,
+      assignedTasks: 1, // "Review A"
+      overdueTasks: 0,
+    });
     expect(res.body.institution).toBeNull();
   });
 });
